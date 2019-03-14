@@ -1,0 +1,101 @@
+version: '3.5'
+volumes:
+  nfsmount:
+    driver: local
+    driver_opts:
+      type: "nfs"
+      o: "addr=host.docker.internal,lock"
+      device: ":$PWD/ezplatform"
+services:
+  nginx:
+    image: nginx:stable-alpine
+    container_name: ez-nginx
+    volumes:
+      - nfsmount:/var/www/html:ro
+      - $PWD/docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - $PWD/docker/nginx/entrypoint.bash:/entrypoint.bash:ro
+      - ./ezplatform/doc/nginx/ez_params.d:/etc/nginx/ez_params.d:ro
+    depends_on:
+      - engine
+    entrypoint: /entrypoint.bash
+    ports:
+      - 8080:80
+  engine:
+    build: $PWD/docker/engine/
+    container_name: ez-engine
+    volumes:
+      - nfsmount:/var/www/html:rw
+      - $PWD/docker/engine/php.ini:/usr/local/etc/php/php.ini:ro
+    working_dir: /var/www/html
+    shm_size: 1024M
+    environment:
+      DATABASE_USER: root
+      DATABASE_NAME: ezplatform
+      DATABASE_PASSWORD: ezplatform
+      SYMFONY_SECRET: eZPlatformSecretEtectureKey2019
+      DATABASE_HOST: db
+      CUSTOM_CACHE_POOL: singleredis
+      CACHE_HOST: redis
+      CACHE_POOL: cache.redis
+      CACHE_DSN: redis:6379
+      SEARCH_ENGINE: solr
+      SYMFONY_ENV: dev
+      SOLR_DSN: http://solr:8983/solr
+      SYMFONY_TMP_DIR: /var/www/ezplatformcache
+      COMPOSER_HOME: /var/www/ezplatformcache/.composer
+      COMPOSER_CACHE_DIR: /var/www/ezplatformcache/.composer/cache
+      SESSION_HANDLER_ID: ezplatform.core.session.handler.native_redis
+      SESSION_SAVE_PATH: tcp://redis:6379?weight=1
+  db:
+    image: mariadb:10.4
+    container_name: ez-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ezplatform
+      MYSQL_GENERAL_LOG: 0
+      MYSQL_DATABASE: ezplatform
+      MYSQL_USER: ezplatform
+      MYSQL_PASSWORD: ezplatform
+      MYSQL_INNODB_BUFFER_POOL_SIZE: 3G
+    ports:
+      - 3306:3306
+  phpmyadmin:
+    container_name: ez-phpmyadmin
+    image: phpmyadmin/phpmyadmin
+    environment:
+      PMA_ARBITRARY: 1
+    links:
+      - db
+    ports:
+      - 8899:80
+  solr:
+    image: solr:6-alpine
+    container_name: ez-solr
+    volumes:
+      - nfsmount:/var/www/html:ro
+      - $PWD/docker/solr/entrypoint.bash:/entrypoint.bash:ro
+      - $PWD/docker/solr:/ezsolr:rw
+    entrypoint: /entrypoint.bash
+    depends_on:
+      - engine
+    environment:
+      SOLR_CORES: collection1
+    ports:
+      - 8983:8983
+  mailcatcher:
+    image: tophfr/mailcatcher
+    container_name: ez-mail
+    ports:
+      - 1080:80
+      - 1025:25
+  redis:
+    image: redis:alpine
+    container_name: ez-redis
+    depends_on:
+      - engine
+  redisadmin:
+    image: rediscommander/redis-commander:latest
+    container_name: ez-redisadmin
+    environment:
+      REDIS_HOST: redis
+    ports:
+      - 8081:8081
